@@ -6,7 +6,7 @@
 
 <script>
 export default {
-	inject: ["system"],
+	inject: ['api', 'stores'],
 	props: {
 		value: String,
 		interface: String,
@@ -23,19 +23,130 @@ export default {
 		};
 	},
 	methods: {
+		aggregation : function (_uri, _id)
+		{
+			return new Promise(async (_resolve, _reject) => 
+			{
+				const timeLimit = 500;
+				let propertyName = '__directusTranslationsInterface';
+				
+				window[propertyName] = typeof window[propertyName] != 'undefined' ? window[propertyName] : {};
+				
+				if (typeof window[propertyName][_uri] !== 'object')
+				{
+					window[propertyName][_uri] = {
+						initTime : new Date().getTime(),
+						ids : [],
+						callbacks : []
+					};
+				}
+				
+				window[propertyName][_uri].ids.push(_id);
+				window[propertyName][_uri].callbacks.push(_resolve);
+				
+				let check = async function ()
+				{
+					let data = window[propertyName][_uri];
+					
+					if (!data)
+					{
+						return;
+					}
+					
+					if (new Date().getTime() - data.initTime >= timeLimit)
+					{
+						delete window[propertyName][_uri];
+						
+						let result = await this.api.get(`${_uri}${data.ids.join(',')}`);
+						let filtered, arr, j;
+						
+						for (let i in data.callbacks)
+						{
+							// data filtering
+							filtered = {};
+							
+							for (j = 0; j < result.data.data.length; j++)
+							{
+								arr = result.data.data[j][this.field];
+								//arr = Array.isArray(arr) ? arr : (arr.translations || []);
+								
+								if (Array.isArray(arr))
+								{
+									for (let k in arr)
+									{
+										if (arr[k].id === data.ids[i])
+										{
+											filtered[data.ids[i]] = result.data.data[j];
+										}
+									}
+								}
+								else
+								{
+									if (arr.id === data.ids[i])
+									{
+										filtered[data.ids[i]] = result.data.data[j];
+									}
+								}
+							}
+							
+							//console.log(data.ids[i], Object.values(filtered));
+							data.callbacks[i](Object.values(filtered));
+							
+							/*
+							data.callbacks[i](result.data.data.filter((_item) => 
+							{
+								let arr = eval(`_item.${this.field}`);
+									arr = Array.isArray(arr) ? arr : (arr.translations || []);
+								
+								for (let k in arr)
+								{
+									if (arr[k].id === data.ids[i])
+									{
+										return true;
+									}
+								}
+								
+								return false;
+							}));
+							*/
+						}
+					}
+				};
+				
+				check();
+				setTimeout(check.bind(this), timeLimit);
+				
+			});
+		},
 		requestData : async function (_template)
 		{
 			let fields = ['languages_code'];
 			
 			Object.keys(_template.paths).map(_item =>
 			{
+				fields.push(this.field + '.id');
 				fields.push(this.field + '.' + _item);
-				fields.push(this.field + '.' + _item.split('.').slice(0, -1).join('.') + '.languages_code');
+				
+				let tmp = _item.split('.').slice(0, -1).join('.');
+				
+				if (tmp)
+				{
+					fields.push(this.field + '.' + tmp + '.id');
+					fields.push(this.field + '.' + tmp + '.languages_code');
+				}
+				else
+				{
+					fields.push(this.field + '.id');
+					fields.push(this.field + '.languages_code');
+				}
 			});
 			
-			let data = await this.system.api.get(`/items/${this.collection}?fields=${fields.join(',')}&filter[${this.field}][id][_in]=${Array.isArray(this.value) ? this.value.join(',') : this.value}`);
+			let data = await this.aggregation(
+				`/items/${this.collection}?fields=${fields.join(',')}&filter[${this.field}][id][_in]=`,
+				Array.isArray(this.value) ? this.value[0] : this.value
+			);
 			
-			return data.data.data[0];
+			return data;
 		},
 		parseTemplate : function (_template)
 		{
@@ -64,7 +175,7 @@ export default {
 			for (let i in _array)
 			{
 				if (typeof _array[i].languages_code === 'string' &&
-					_array[i].languages_code === this.system.useUserStore().state.currentUser.language
+					_array[i].languages_code === this.stores.useUserStore().currentUser.language
 				)
 				{
 					return _array[i];
@@ -88,7 +199,9 @@ export default {
 				{
 					if (_data.length > 0)
 					{
-						if (_path[_level - 1] === 'translations')
+						if (_path[_level - 1] === 'translations' ||
+							_level == 0
+						)
 						{
 							return this.resolvePath(
 								this.filterLang(_data),
@@ -141,18 +254,27 @@ export default {
 	},
 	created : async function ()
 	{
-		const template_ = this.parseTemplate(this.$attrs.template);
-		const data = await this.requestData(template_);
 		
+		const template_ = this.parseTemplate(this.$attrs.template);
+		const internalDataFlag = Array.isArray(this.value) && typeof this.value[0] !== 'number';
+		const data = internalDataFlag ? this.value : await this.requestData(template_);
 		let pathArray;
+		
+		template_.compiled = template_.template;
 		
 		for (let path in template_.paths)
 		{
 			pathArray = path.split('.');
-			pathArray.unshift(this.field);
+			
+			if (!internalDataFlag)
+			{
+				pathArray.unshift(this.field);
+			}
+			
+			//console.log(pathArray, data);
 			
 			template_.paths[path] = this.resolvePath(data, pathArray);
-			template_.compiled = template_.template.replaceAll(`{{${path}}}`, template_.paths[path]).trim();
+			template_.compiled = template_.compiled.replaceAll(`{{${path}}}`, template_.paths[path]).trim();
 		}
 		
 		this.result = template_.compiled;
@@ -161,7 +283,7 @@ export default {
 };
 </script>
 
-<style lang="scss" scoped>
+<style lang="css" scoped>
 .null {
 	color: var(--border-normal);
 }
