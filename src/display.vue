@@ -1,10 +1,12 @@
 <template>
-	<span v-if="result">{{ result }}</span>
-	<span v-else-if="isLoading" class="null">Loading...</span>
+	<span v-if="result" v-html="result"></span>
+	<span v-else-if="isLoading" class="null">{{ t('loading') }}</span>
 	<span v-else class="null">--</span>
 </template>
 
 <script>
+import { useI18n } from 'vue-i18n';
+
 export default {
 	inject: ['api', 'stores'],
 	props: {
@@ -22,13 +24,19 @@ export default {
 			isLoading : true
 		};
 	},
+	setup (props)
+	{
+		const { t } = useI18n();
+		
+		return { t };
+	},
 	methods: {
 		aggregation : function (_uri, _id)
 		{
 			return new Promise(async (_resolve, _reject) => 
 			{
 				const timeLimit = 500;
-				let propertyName = '__directusTranslationsInterface';
+				let propertyName = '__directusTranslationsDisplay';
 				
 				window[propertyName] = typeof window[propertyName] != 'undefined' ? window[propertyName] : {};
 				
@@ -199,7 +207,7 @@ export default {
 				{
 					if (_data.length > 0)
 					{
-						if (_path[_level - 1] === 'translations' ||
+						if (_data.every(_item => typeof _item === 'object' && typeof _item.languages_code !== 'undefined') ||
 							_level == 0
 						)
 						{
@@ -224,7 +232,7 @@ export default {
 								);
 							});
 							
-							return array.join(',');
+							return array.join(', ');
 						}
 					}
 					else
@@ -254,7 +262,6 @@ export default {
 	},
 	created : async function ()
 	{
-		
 		const template_ = this.parseTemplate(this.$attrs.template);
 		const internalDataFlag = Array.isArray(this.value) && typeof this.value[0] !== 'number';
 		const data = internalDataFlag ? this.value : await this.requestData(template_);
@@ -274,7 +281,7 @@ export default {
 			//console.log(pathArray, data);
 			
 			template_.paths[path] = this.resolvePath(data, pathArray);
-			template_.compiled = template_.compiled.replaceAll(`{{${path}}}`, template_.paths[path]).trim();
+			template_.compiled = template_.compiled.replaceAll(`{{${path}}}`, template_.paths[path] ? template_.paths[path] : `<span class="null">--</span>`).trim();
 		}
 		
 		this.result = template_.compiled;
@@ -284,7 +291,8 @@ export default {
 </script>
 
 <style lang="css" scoped>
-.null {
+.null,
+:deep(.null) {
 	color: var(--border-normal);
 }
 </style>
