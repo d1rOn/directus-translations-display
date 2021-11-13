@@ -281,7 +281,7 @@ export default {
 			//console.log(pathArray, data);
 			
 			template_.paths[path] = this.resolvePath(data, pathArray);
-			template_.compiled = template_.compiled.replaceAll(`{{${path}}}`, template_.paths[path] ? template_.paths[path] : `<span class="null">--</span>`).trim();
+			template_.compiled = template_.compiled.replaceAll(`{{${path}}}`, template_.paths[path] ? template_.paths[path].replace(/(<([^>]+)>)/gi, '').trim() : `<span class="null">--</span>`).trim();
 		}
 		
 		this.result = template_.compiled;
